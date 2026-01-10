@@ -4,67 +4,100 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ランプシャッター デモ</title>
+
 <style>
   body {
     margin: 0;
     background: #000;
     color: #fff;
-    font-family: sans-serif;
-    text-align: center;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow: hidden;
   }
+
   video {
     width: 100vw;
-    height: auto;
+    height: 100vh;
+    object-fit: cover;
   }
+
+  /* ROI：中央・大きめ */
   #roi {
     position: fixed;
-    top: 10px;
-    right: 10px;
-    width: 120px;
-    height: 80px;
-    border: 3px solid yellow;
+    top: 50%;
+    left: 50%;
+    width: 240px;
+    height: 160px;
+    transform: translate(-50%, -50%);
+    border: 4px solid yellow;
     box-sizing: border-box;
+    pointer-events: none;
   }
+
   #result {
     position: fixed;
-    bottom: 20px;
+    bottom: 24px;
     left: 50%;
     transform: translateX(-50%);
-    font-size: 48px;
-    font-weight: bold;
+    font-size: 56px;
+    font-weight: 800;
+    text-shadow: 0 0 12px rgba(0,0,0,0.8);
   }
 </style>
 </head>
+
 <body>
 
 <video id="video" autoplay playsinline></video>
 <div id="roi"></div>
 <div id="result">---</div>
 
-<canvas id="canvas" width="120" height="80" style="display:none;"></canvas>
+<!-- ROIと同サイズ -->
+<canvas id="canvas" width="240" height="160" style="display:none;"></canvas>
 
 <script>
-const video = document.getElementById("video");
+const video  = document.getElementById("video");
 const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
+const ctx    = canvas.getContext("2d");
 const result = document.getElementById("result");
 
+const ROI_W = 240;
+const ROI_H = 160;
+
+// カメラ起動
 navigator.mediaDevices.getUserMedia({
-  video: { facingMode: "environment" }
+  video: { facingMode: "environment" },
+  audio: false
 }).then(stream => {
   video.srcObject = stream;
+}).catch(err => {
+  result.textContent = "CAMERA NG";
+  console.error(err);
 });
 
+// 色判定
 function checkColor() {
-  ctx.drawImage(video, video.videoWidth - 120, 0, 120, 80, 0, 0, 120, 80);
-  const data = ctx.getImageData(0, 0, 120, 80).data;
+  if (video.videoWidth === 0) return;
+
+  // 中央ROIを切り出し
+  const sx = (video.videoWidth  - ROI_W) / 2;
+  const sy = (video.videoHeight - ROI_H) / 2;
+
+  ctx.drawImage(video, sx, sy, ROI_W, ROI_H, 0, 0, ROI_W, ROI_H);
+
+  const data = ctx.getImageData(0, 0, ROI_W, ROI_H).data;
 
   let r = 0, g = 0;
+  const pixels = data.length / 4;
+
   for (let i = 0; i < data.length; i += 4) {
-    r += data[i];
-    g += data[i + 1];
+    r += data[i];     // R
+    g += data[i + 1]; // G
   }
 
+  r /= pixels;
+  g /= pixels;
+
+  // 閾値（デモ用・分かりやすさ重視）
   if (g > r * 1.2) {
     result.textContent = "OK";
     result.style.color = "lime";
@@ -77,9 +110,9 @@ function checkColor() {
   }
 }
 
+// 300msごとに判定
 setInterval(checkColor, 300);
 </script>
 
 </body>
 </html>
-<!-- rebuild -->
