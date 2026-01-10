@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ランプシャッター デモ</title>
+<style>
+  body {
+    margin: 0;
+    background: #000;
+    color: #fff;
+    font-family: sans-serif;
+    text-align: center;
+  }
+  video {
+    width: 100vw;
+    height: auto;
+  }
+  #roi {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    width: 120px;
+    height: 80px;
+    border: 3px solid yellow;
+    box-sizing: border-box;
+  }
+  #result {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 48px;
+    font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<video id="video" autoplay playsinline></video>
+<div id="roi"></div>
+<div id="result">---</div>
+
+<canvas id="canvas" width="120" height="80" style="display:none;"></canvas>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const result = document.getElementById("result");
+
+navigator.mediaDevices.getUserMedia({
+  video: { facingMode: "environment" }
+}).then(stream => {
+  video.srcObject = stream;
+});
+
+function checkColor() {
+  ctx.drawImage(video, video.videoWidth - 120, 0, 120, 80, 0, 0, 120, 80);
+  const data = ctx.getImageData(0, 0, 120, 80).data;
+
+  let r = 0, g = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    r += data[i];
+    g += data[i + 1];
+  }
+
+  if (g > r * 1.2) {
+    result.textContent = "OK";
+    result.style.color = "lime";
+  } else if (r > g * 1.2) {
+    result.textContent = "NG";
+    result.style.color = "red";
+  } else {
+    result.textContent = "---";
+    result.style.color = "white";
+  }
+}
+
+setInterval(checkColor, 300);
+</script>
+
+</body>
+</html>
