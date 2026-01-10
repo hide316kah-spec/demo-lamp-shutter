@@ -6,69 +6,28 @@
 <title>ランプシャッター デモ</title>
 
 <style>
-  body {
-    margin: 0;
-    background: #000;
-    color: #fff;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    overflow: hidden;
-  }
-  video {
-    width: 100vw;
-    height: 100vh;
-    object-fit: cover;
+  body { margin:0; background:#000; color:#fff; font-family:system-ui; overflow:hidden; }
+  video { width:100vw; height:100vh; object-fit:cover; }
+
+  /* ROI：中央・丸（小） */
+  #roi{
+    position:fixed; top:50%; left:50%;
+    width:75px; height:75px; transform:translate(-50%,-50%);
+    border:4px solid yellow; border-radius:50%;
+    pointer-events:none; z-index:3;
   }
 
-  /* ROI：中央・丸（半分） */
-  #roi {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    width: 75px;      /* ← 半分 */
-    height: 75px;
-    transform: translate(-50%, -50%);
-    border: 4px solid yellow;
-    border-radius: 50%;
-    box-sizing: border-box;
-    pointer-events: none;
-    z-index: 3;
+  #result{
+    position:fixed; bottom:28px; left:50%; transform:translateX(-50%);
+    font-size:30px; font-weight:900; text-align:center; line-height:1.25;
+    text-shadow:0 0 16px rgba(0,0,0,.9); white-space:pre-line; z-index:3;
   }
+  .ok{ color:#00ff66; }
+  .ng{ color:#ff3333; }
 
-  #result {
-    position: fixed;
-    bottom: 28px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 30px;
-    font-weight: 900;
-    text-align: center;
-    line-height: 1.25;
-    text-shadow: 0 0 16px rgba(0,0,0,0.9);
-    white-space: pre-line;
-    padding: 0 16px;
-    z-index: 3;
-  }
-  .ok { color: #00ff66; }
-  .ng { color: #ff3333; }
-
-  /* エフェクト */
-  #fx {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 2;
-    overflow: hidden;
-  }
-  .particle {
-    position: absolute;
-    font-size: 18px;
-    opacity: 0.85;
-    animation: float linear infinite;
-  }
-  @keyframes float {
-    from { transform: translateY(0); }
-    to   { transform: translateY(-120vh); }
-  }
+  #fx{ position:fixed; inset:0; pointer-events:none; z-index:2; }
+  .particle{ position:absolute; font-size:18px; opacity:.85; animation:float linear infinite; }
+  @keyframes float{ from{transform:translateY(0)} to{transform:translateY(-120vh)} }
 </style>
 </head>
 
@@ -78,109 +37,93 @@
 <div id="fx"></div>
 <div id="roi"></div>
 <div id="result">円を●にあわせて</div>
-
-<!-- 内部判定（半分） -->
-<canvas id="canvas" width="60" height="60" style="display:none;"></canvas>
+<canvas id="canvas" width="60" height="60" style="display:none"></canvas>
 
 <script>
-const video  = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const ctx    = canvas.getContext("2d", { willReadFrequently: true });
-const result = document.getElementById("result");
-const fx     = document.getElementById("fx");
+const video=document.getElementById("video");
+const canvas=document.getElementById("canvas");
+const ctx=canvas.getContext("2d",{willReadFrequently:true});
+const result=document.getElementById("result");
+const fx=document.getElementById("fx");
 
-const ROI_D = 60; // 実判定サイズ（半分）
+const ROI_D=60;
+let lastLabel="none", holdUntil=0, fxTimer=null;
 
-let lastLabel = "none";
-let holdUntil = 0;
-let fxTimer = null;
+navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false})
+.then(s=>video.srcObject=s);
 
-// カメラ
-navigator.mediaDevices.getUserMedia({
-  video: { facingMode: "environment" },
-  audio: false
-}).then(stream => video.srcObject = stream);
-
-// エフェクト
-function clearFX() {
-  fx.innerHTML = "";
-  if (fxTimer) { clearInterval(fxTimer); fxTimer = null; }
-}
-function startFX(type) {
+// ===== FX =====
+function clearFX(){ fx.innerHTML=""; if(fxTimer){clearInterval(fxTimer); fxTimer=null;} }
+function startFX(type){
   clearFX();
-  const emoji = (type === "angel") ? "😈" : "✨";
-  const max = 18;
-  fxTimer = setInterval(() => {
-    if (fx.children.length >= max) return;
-    const p = document.createElement("div");
-    p.className = "particle";
-    p.textContent = emoji;
-    p.style.left = (Math.random()*100)+"vw";
-    p.style.bottom = "-10vh";
-    p.style.animationDuration = (6+Math.random()*6)+"s";
+  const emoji=(type==="angel")?"😈":"✨";
+  fxTimer=setInterval(()=>{
+    if(fx.children.length>=18) return;
+    const p=document.createElement("div");
+    p.className="particle"; p.textContent=emoji;
+    p.style.left=(Math.random()*100)+"vw";
+    p.style.bottom="-10vh";
+    p.style.animationDuration=(6+Math.random()*6)+"s";
     fx.appendChild(p);
-    setTimeout(()=>p.remove(), 12000);
-  }, 350);
+    setTimeout(()=>p.remove(),12000);
+  },350);
 }
 
-// 表示
-function setLabel(label, cls, text) {
-  const now = Date.now();
-  if (label !== lastLabel) {
-    lastLabel = label;
-    holdUntil = now + 900;
-    result.className = cls;
-    result.textContent = text;
-    if (label === "angel") startFX("angel");
-    else if (label === "nio") startFX("nio");
+function setLabel(label,cls,text){
+  const now=Date.now();
+  if(label!==lastLabel){
+    lastLabel=label; holdUntil=now+900;
+    result.className=cls; result.textContent=text;
+    if(label==="angel") startFX("angel");
+    else if(label==="nio") startFX("nio");
     else clearFX();
   }
 }
 
-// 判定
-function checkColor() {
-  if (!video.videoWidth) return;
+// ===== 判定 =====
+function checkColor(){
+  if(!video.videoWidth) return;
 
-  const sx = (video.videoWidth  - ROI_D)/2;
-  const sy = (video.videoHeight - ROI_D)/2;
-  ctx.drawImage(video, sx, sy, ROI_D, ROI_D, 0, 0, ROI_D, ROI_D);
-  const d = ctx.getImageData(0,0,ROI_D,ROI_D).data;
+  const sx=(video.videoWidth-ROI_D)/2;
+  const sy=(video.videoHeight-ROI_D)/2;
+  ctx.drawImage(video,sx,sy,ROI_D,ROI_D,0,0,ROI_D,ROI_D);
+  const d=ctx.getImageData(0,0,ROI_D,ROI_D).data;
 
-  let r=0,g=0,b=0; const n=d.length/4;
-  for (let i=0;i<d.length;i+=4){ r+=d[i]; g+=d[i+1]; b+=d[i+2]; }
+  let r=0,g=0,b=0,n=d.length/4;
+  for(let i=0;i<d.length;i+=4){ r+=d[i]; g+=d[i+1]; b+=d[i+2]; }
   r/=n; g/=n; b/=n;
 
   const lum=(r+g+b)/3;
-  if (Date.now()<holdUntil) return;
+  if(Date.now()<holdUntil) return;
+  if(lum<40){ setLabel("none","", "円を●にあわせて"); return; }
 
-  if (lum<40){ setLabel("none","", "円を●にあわせて"); return; }
-
-  /* 黄（天使）を甘く：下限↓・差許容↑・明度↓ */
+  // === 黄色（天使）: 赤優位を明確に排除 ===
+  const yellowIndex=(r+g)-2*b; // 黄らしさ
   const isYellow =
-    r > 150 &&
-    g > 150 &&
-    Math.abs(r - g) < 35 &&
-    b < 115 &&
-    lum > 115;
+    g >= r*0.95 && g <= r*1.05 &&   // RとGが拮抗（赤禁止）
+    r > 140 && g > 140 &&            // 明るさ
+    b < 120 &&                       // 青を抑制
+    yellowIndex > 140 &&             // 黄指数
+    lum > 120;
 
-  /* 赤（金剛力士）は従来どおり強め */
+  // === 赤（金剛力士） ===
   const isRed =
     r > 165 &&
     r > g * 1.35 &&
     r > b * 1.45;
 
-  if (isYellow){
+  // 優先順位：黄色 → 赤
+  if(isYellow){
     setLabel("angel","ng","NG！\n実は堕天使　気をつけて");
     return;
   }
-  if (isRed){
+  if(isRed){
     setLabel("nio","ok","OK！\n金剛力士　見た目は鬼でも守り神");
     return;
   }
   setLabel("none","", "円を●にあわせて");
 }
-
-setInterval(checkColor, 200);
+setInterval(checkColor,200);
 </script>
 
 </body>
