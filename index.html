@@ -20,31 +20,58 @@
     object-fit: cover;
   }
 
-  /* ROI：中央・大きめ */
+  /* ROI：中央・丸 */
   #roi {
     position: fixed;
     top: 50%;
     left: 50%;
-    width: 260px;
-    height: 180px;
+    width: 220px;
+    height: 220px;
     transform: translate(-50%, -50%);
     border: 4px solid yellow;
+    border-radius: 50%;
     box-sizing: border-box;
     pointer-events: none;
+    z-index: 3;
   }
 
   #result {
     position: fixed;
-    bottom: 24px;
+    bottom: 28px;
     left: 50%;
     transform: translateX(-50%);
-    font-size: 28px;
+    font-size: 30px;
     font-weight: 900;
     text-align: center;
-    line-height: 1.35;
-    text-shadow: 0 0 14px rgba(0,0,0,0.9);
-    padding: 0 12px;
+    line-height: 1.25;
+    text-shadow: 0 0 16px rgba(0,0,0,0.9);
     white-space: pre-line;
+    padding: 0 16px;
+    z-index: 3;
+  }
+
+  .ok { color: #00ff66; }
+  .ng { color: #ff3333; }
+
+  /* エフェクト用レイヤー */
+  #fx {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+    overflow: hidden;
+  }
+
+  .particle {
+    position: absolute;
+    font-size: 22px;
+    opacity: 0.85;
+    animation: float linear infinite;
+  }
+
+  @keyframes float {
+    from { transform: translateY(0); }
+    to   { transform: translateY(-120vh); }
   }
 </style>
 </head>
@@ -52,23 +79,25 @@
 <body>
 
 <video id="video" autoplay playsinline></video>
+<div id="fx"></div>
 <div id="roi"></div>
-<div id="result">かざしてみて</div>
+<div id="result">円を●にあわせて</div>
 
-<canvas id="canvas" width="260" height="180" style="display:none;"></canvas>
+<canvas id="canvas" width="200" height="200" style="display:none;"></canvas>
 
 <script>
 const video  = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx    = canvas.getContext("2d", { willReadFrequently: true });
 const result = document.getElementById("result");
+const fx     = document.getElementById("fx");
 
-const ROI_W = 260;
-const ROI_H = 180;
+const ROI_D = 200;
 
-// 表示固定（チラつき防止）
+// 状態管理
 let lastLabel = "none";
 let holdUntil = 0;
+let fxTimer = null;
 
 // カメラ起動
 navigator.mediaDevices.getUserMedia({
@@ -76,30 +105,77 @@ navigator.mediaDevices.getUserMedia({
   audio: false
 }).then(stream => {
   video.srcObject = stream;
-}).catch(err => {
-  result.textContent = "カメラが使えません";
-  console.error(err);
 });
 
-function setLabel(label, color, text) {
-  const now = Date.now();
-  if (label !== lastLabel) {
-    lastLabel = label;
-    holdUntil = now + 900; // 0.9秒固定
-    result.textContent = text;
-    result.style.color = color;
+// ===== エフェクト管理 =====
+function clearFX() {
+  fx.innerHTML = "";
+  if (fxTimer) {
+    clearInterval(fxTimer);
+    fxTimer = null;
   }
 }
 
+function startFX(type) {
+  clearFX();
+
+  const emoji = (type === "angel") ? "😈" : "✨";
+  const maxParticles = 24;
+
+  fxTimer = setInterval(() => {
+    if (fx.children.length >= maxParticles) return;
+
+    const p = document.createElement("div");
+    p.className = "particle";
+    p.textContent = emoji;
+
+    const x = Math.random() * 100;
+    const size = (type === "angel")
+      ? 18 + Math.random() * 10
+      : 16 + Math.random() * 14;
+
+    const duration = 6 + Math.random() * 6;
+
+    p.style.left = x + "vw";
+    p.style.bottom = "-10vh";
+    p.style.fontSize = size + "px";
+    p.style.animationDuration = duration + "s";
+
+    fx.appendChild(p);
+
+    // 終わったら消す
+    setTimeout(() => {
+      if (p.parentNode) p.remove();
+    }, duration * 1000);
+
+  }, 350);
+}
+
+// 表示更新
+function setLabel(label, className, text) {
+  const now = Date.now();
+  if (label !== lastLabel) {
+    lastLabel = label;
+    holdUntil = now + 900;
+
+    result.className = className;
+    result.textContent = text;
+
+    if (label === "angel") startFX("angel");
+    else if (label === "nio") startFX("nio");
+    else clearFX();
+  }
+}
+
+// ===== 判定 =====
 function checkColor() {
   if (video.videoWidth === 0) return;
 
-  // 中央ROI切り出し
-  const sx = (video.videoWidth  - ROI_W) / 2;
-  const sy = (video.videoHeight - ROI_H) / 2;
+  const sx = (video.videoWidth  - ROI_D) / 2;
+  const sy = (video.videoHeight - ROI_D) / 2;
 
-  ctx.drawImage(video, sx, sy, ROI_W, ROI_H, 0, 0, ROI_W, ROI_H);
-  const data = ctx.getImageData(0, 0, ROI_W, ROI_H).data;
+  ctx.drawImage(video, sx, sy, ROI_D, ROI_D, 0, 0, ROI_D, ROI_D);
+  const data = ctx.getImageData(0, 0, ROI_D, ROI_D).data;
 
   let r = 0, g = 0, b = 0;
   const pixels = data.length / 4;
@@ -110,65 +186,42 @@ function checkColor() {
     b += data[i + 2];
   }
 
-  r /= pixels;
-  g /= pixels;
-  b /= pixels;
+  r /= pixels; g /= pixels; b /= pixels;
 
   const lum = (r + g + b) / 3;
   const now = Date.now();
-
-  // 表示保持中は再判定しない
   if (now < holdUntil) return;
 
-  // 暗すぎる場合は黙る（事故防止）
-  if (lum < 40) {
-    setLabel("none", "white", "かざしてみて");
+  if (lum < 45) {
+    setLabel("none", "", "円を●にあわせて");
     return;
   }
 
-  /* =========================
-     判定ロジック（重要）
-     ① 黄色を最優先
-     ② 次に赤
-     ③ それ以外は無表示
-     ========================= */
-
-  // 黄色（天使）判定：RとGが両方高く、差が小さく、Bが低い
+  // 黄色（天使）最優先
   const isYellow =
-    r > 160 &&
-    g > 160 &&
-    Math.abs(r - g) < 25 &&
-    b < 110;
+    r > 180 && g > 180 &&
+    Math.abs(r - g) < 18 &&
+    b < 95 && lum > 140;
 
-  // 赤（金剛力士）判定：Rが圧倒的に優位
+  // 赤（金剛力士）
   const isRed =
-    r > 160 &&
-    r > g * 1.35 &&
-    r > b * 1.4;
+    r > 170 &&
+    r > g * 1.4 &&
+    r > b * 1.5;
 
-  // 優先順位厳守
   if (isYellow) {
-    setLabel(
-      "angel",
-      "yellow",
-      "NG！実は堕天使\n気をつけて"
-    );
+    setLabel("angel", "ng", "NG！\n実は堕天使　気をつけて");
     return;
   }
 
   if (isRed) {
-    setLabel(
-      "nio",
-      "red",
-      "OK！見た目は鬼でも\n金剛力士"
-    );
+    setLabel("nio", "ok", "OK！\n金剛力士　見た目は鬼でも守り神");
     return;
   }
 
-  setLabel("none", "white", "かざしてみて");
+  setLabel("none", "", "円を●にあわせて");
 }
 
-// 200ms周期
 setInterval(checkColor, 200);
 </script>
 
