@@ -46,16 +46,6 @@
     padding: 0 12px;
     white-space: pre-line;
   }
-
-  /* 任意：デバッグ（小さく出す） */
-  #dbg {
-    position: fixed;
-    top: 10px;
-    left: 10px;
-    font-size: 14px;
-    opacity: 0.7;
-    white-space: pre-line;
-  }
 </style>
 </head>
 
@@ -64,7 +54,6 @@
 <video id="video" autoplay playsinline></video>
 <div id="roi"></div>
 <div id="result">かざしてみて</div>
-<div id="dbg"></div>
 
 <canvas id="canvas" width="260" height="180" style="display:none;"></canvas>
 
@@ -73,12 +62,11 @@ const video  = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx    = canvas.getContext("2d", { willReadFrequently: true });
 const result = document.getElementById("result");
-const dbg    = document.getElementById("dbg");
 
 const ROI_W = 260;
 const ROI_H = 180;
 
-// 判定を安定させるため：同じ結果を少し保持
+// 表示固定（チラつき防止）
 let lastLabel = "none";
 let holdUntil = 0;
 
@@ -97,17 +85,16 @@ function setLabel(label, color, text) {
   const now = Date.now();
   if (label !== lastLabel) {
     lastLabel = label;
-    holdUntil = now + 900; // 0.9秒固定（チラつき防止）
+    holdUntil = now + 900; // 0.9秒固定
     result.textContent = text;
     result.style.color = color;
-  } else {
-    // 同じラベルなら保持時間更新しない
   }
 }
 
 function checkColor() {
   if (video.videoWidth === 0) return;
 
+  // 中央ROI切り出し
   const sx = (video.videoWidth  - ROI_W) / 2;
   const sy = (video.videoHeight - ROI_H) / 2;
 
@@ -123,57 +110,65 @@ function checkColor() {
     b += data[i + 2];
   }
 
-  r /= pixels; g /= pixels; b /= pixels;
+  r /= pixels;
+  g /= pixels;
+  b /= pixels;
 
-  // ---- 判定指標 ----
-  // 赤らしさ：Rが強く、G/Bより優位
-  const redScore = r - (g + b) / 2;
-
-  // 黄らしさ：RとGが両方強く、Bが弱い
-  const yellowScore = (r + g) / 2 - b;
-
-  // 明るさ（暗所の誤判定を避ける）
   const lum = (r + g + b) / 3;
-
-  // デバッグ表示（邪魔なら消せ）
-  dbg.textContent = `R:${r.toFixed(0)} G:${g.toFixed(0)} B:${b.toFixed(0)}
-redScore:${redScore.toFixed(1)}  yellowScore:${yellowScore.toFixed(1)}  lum:${lum.toFixed(0)}`;
-
   const now = Date.now();
 
-  // 既にラベルを表示中で保持期間内なら、判定を固定してチラつきを防ぐ
+  // 表示保持中は再判定しない
   if (now < holdUntil) return;
 
-  // 暗すぎる時は何も言わない
-  if (lum < 35) {
+  // 暗すぎる場合は黙る（事故防止）
+  if (lum < 40) {
     setLabel("none", "white", "かざしてみて");
     return;
   }
 
-  // ---- 閾値（デモ用に強め）----
-  // 実物の色マーカーを「ベタ塗り」で用意する前提
-  const RED_TH = 35;     // 赤優位の強さ
-  const YEL_TH = 55;     // 黄の強さ
-  const DOM_TH = 1.15;   // 優位比率
+  /* =========================
+     判定ロジック（重要）
+     ① 黄色を最優先
+     ② 次に赤
+     ③ それ以外は無表示
+     ========================= */
 
-  const isRedDominant = (r > g * DOM_TH) && (r > b * (DOM_TH + 0.05)) && (redScore > RED_TH);
-  const isYellowDominant = (yellowScore > YEL_TH) && (r > 80) && (g > 80) && (b < 110);
+  // 黄色（天使）判定：RとGが両方高く、差が小さく、Bが低い
+  const isYellow =
+    r > 160 &&
+    g > 160 &&
+    Math.abs(r - g) < 25 &&
+    b < 110;
 
-  // 優先順位：黄→天使、赤→金剛力士
-  // （黄は環境で白に寄る場合があるので、条件を厳しめにして誤爆を抑える）
-  if (isYellowDominant && !isRedDominant) {
-    setLabel("angel", "yellow", "NG！実は堕天使\n気をつけて");
+  // 赤（金剛力士）判定：Rが圧倒的に優位
+  const isRed =
+    r > 160 &&
+    r > g * 1.35 &&
+    r > b * 1.4;
+
+  // 優先順位厳守
+  if (isYellow) {
+    setLabel(
+      "angel",
+      "yellow",
+      "NG！実は堕天使\n気をつけて"
+    );
     return;
   }
 
-  if (isRedDominant) {
-    setLabel("nio", "red", "OK！見た目は鬼でも\n金剛力士");
+  if (isRed) {
+    setLabel(
+      "nio",
+      "red",
+      "OK！見た目は鬼でも\n金剛力士"
+    );
     return;
   }
 
   setLabel("none", "white", "かざしてみて");
 }
 
+// 200ms周期
 setInterval(checkColor, 200);
 </script>
 
