@@ -6,34 +6,53 @@
 <title>ランプシャッター デモ</title>
 
 <style>
-  body{margin:0;background:#000;color:#fff;font-family:system-ui;overflow:hidden}
+  body{
+    margin:0;background:#000;color:#fff;
+    font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
+    overflow:hidden;
+  }
   video{width:100vw;height:100vh;object-fit:cover}
 
+  /* ROI：中央・丸 */
   #roi{
     position:fixed;top:50%;left:50%;
     width:75px;height:75px;
     transform:translate(-50%,-50%);
-    border:4px solid #00ffff;border-radius:50%;
+    border:4px solid #00ffff;
+    border-radius:50%;
     pointer-events:none;z-index:3;
   }
 
   #result{
-    position:fixed;bottom:28px;left:50%;transform:translateX(-50%);
-    font-size:30px;font-weight:900;text-align:center;line-height:1.25;
+    position:fixed;bottom:28px;left:50%;
+    transform:translateX(-50%);
+    font-size:30px;font-weight:900;text-align:center;
+    line-height:1.2;
     text-shadow:0 0 16px rgba(0,0,0,.9);
-    white-space:normal; /* ← 改行させない */
+    white-space:pre-line; /* ← 意図した2段のみ */
     z-index:3;
   }
   .ok{color:#00ff66}
   .ng{color:#ff3333}
 
-  #fx{position:fixed;inset:0;pointer-events:none;z-index:2}
-  .particle{position:absolute;font-size:18px;opacity:.85;animation:float linear infinite}
-  @keyframes float{from{transform:translateY(0)}to{transform:translateY(-120vh)}}
+  /* エフェクト */
+  #fx{position:fixed;inset:0;pointer-events:none;z-index:2;overflow:hidden}
+  .particle{
+    position:absolute;
+    font-size:18px;
+    opacity:.85;
+    animation:fall linear infinite;
+  }
+  /* 上 → 下 */
+  @keyframes fall{
+    from{transform:translateY(-20vh)}
+    to{transform:translateY(120vh)}
+  }
 </style>
 </head>
 
 <body>
+
 <video id="video" autoplay playsinline></video>
 <div id="fx"></div>
 <div id="roi"></div>
@@ -47,16 +66,20 @@ const ctx=canvas.getContext("2d",{willReadFrequently:true});
 const result=document.getElementById("result");
 const fx=document.getElementById("fx");
 
-const ROI_D=80;           // ← 少し大きく（拾いやすく）
-const LOCK_TIME=700;      // ← 早めに戻る（リアルタイム感）
-let lockUntil=0;
+const ROI_D=80;              // 判定サイズ
+const NEED_HITS=2;           // 激アマ（2回連続）
+const LOCK_TIME=600;         // ms（短め）
+
 let state="none";
+let lockUntil=0;
+let hitAngel=0, hitNio=0;
 let fxTimer=null;
 
-navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false})
-.then(s=>video.srcObject=s);
+navigator.mediaDevices.getUserMedia({
+  video:{facingMode:"environment"},audio:false
+}).then(s=>video.srcObject=s);
 
-// ===== FX =====
+/* ===== FX ===== */
 function clearFX(){
   fx.innerHTML="";
   if(fxTimer){clearInterval(fxTimer);fxTimer=null;}
@@ -65,100 +88,97 @@ function startFX(type){
   clearFX();
   const emoji=(type==="angel")?"😈":"✨";
   fxTimer=setInterval(()=>{
-    if(fx.children.length>=18) return;
+    if(fx.children.length>=20) return;
     const p=document.createElement("div");
     p.className="particle";
     p.textContent=emoji;
     p.style.left=(Math.random()*100)+"vw";
-    p.style.bottom="-10vh";
-    p.style.animationDuration=(6+Math.random()*6)+"s";
+    p.style.top="-10vh";
+    p.style.animationDuration=(2.5+Math.random()*1.5)+"s"; // 速め
     fx.appendChild(p);
-    setTimeout(()=>p.remove(),12000);
-  },350);
+    setTimeout(()=>p.remove(),5000);
+  },180); // 生成も速め
 }
 
-// ===== 状態表示 =====
+/* ===== 表示 ===== */
 function setState(newState){
   if(newState===state) return;
   state=newState;
   lockUntil=Date.now()+LOCK_TIME;
+  hitAngel=0; hitNio=0;
 
   if(newState==="angel"){
     result.className="ng";
-    result.textContent="NG！ 実は堕天使　気をつけて";   // ← 2行にしない
+    result.textContent="NG!\n堕天使ルシファー";
     startFX("angel");
   }else if(newState==="nio"){
     result.className="ok";
-    result.textContent="OK！ 金剛力士　見た目は鬼でも守り神"; // ← 2行にしない
+    result.textContent="OK!\n大天使ミカエル";
     startFX("nio");
   }else{
     result.className="";
-    result.textContent="円を●にあわせて";              // ← 1行固定
+    result.textContent="円を●にあわせて";
     clearFX();
   }
 }
 
-// ===== 判定 =====
+/* ===== 判定 ===== */
 function check(){
   if(!video.videoWidth) return;
   if(Date.now()<lockUntil) return;
 
   const sx=(video.videoWidth-ROI_D)/2;
   const sy=(video.videoHeight-ROI_D)/2;
-
   ctx.drawImage(video,sx,sy,ROI_D,ROI_D,0,0,ROI_D,ROI_D);
   const d=ctx.getImageData(0,0,ROI_D,ROI_D).data;
 
   let r=0,g=0,b=0,n=d.length/4;
-  for(let i=0;i<d.length;i+=4){ r+=d[i]; g+=d[i+1]; b+=d[i+2]; }
+  for(let i=0;i<d.length;i+=4){
+    r+=d[i]; g+=d[i+1]; b+=d[i+2];
+  }
   r/=n; g/=n; b/=n;
 
   const lum=(r+g+b)/3;
-  if(lum<20){ setState("none"); return; } // 暗すぎは無視
+  if(lum<20){ setState("none"); return; }
 
-  /*
-    激アマ判定（白バランス崩れを吸収する）
-    - シアン：GとBが「そこそこ高い」かつ Rが「そこそこ低い」
-    - マゼンタ：RとBが「そこそこ高い」かつ Gが「そこそこ低い」
-    さらに “優位差” でも拾う（混色に強い）
-  */
+  /* 極端色・激アマ */
+  const cyanAdv=(g+b)-(2*r);
+  const magAdv =(r+b)-(2*g);
 
-  // 優位差（どれだけ他より強いか）
-  const cyanAdv = (g + b) - (2 * r);
-  const magAdv  = (r + b) - (2 * g);
-
-  // シアン（天使）超ゆる
   const isAngel =
-    (
-      g > 110 && b > 110 && r < 170
-    ) ||
-    (
-      cyanAdv > 120 && b > 90 && g > 90
-    );
+    (g>100 && b>100 && r<180) ||
+    (cyanAdv>80);
 
-  // マゼンタ（金剛力士）超ゆる
   const isNio =
-    (
-      r > 110 && b > 110 && g < 170
-    ) ||
-    (
-      magAdv > 120 && b > 90 && r > 90
-    );
+    (r>100 && b>100 && g<180) ||
+    (magAdv>80);
 
-  // どっちも成立しうるときは「より優位が大きい方」
-  if(isAngel && isNio){
-    if(cyanAdv >= magAdv) setState("angel");
-    else setState("nio");
+  if(isAngel && !isNio){
+    hitAngel++; hitNio=0;
+    if(hitAngel>=NEED_HITS) setState("angel");
+    return;
+  }
+  if(isNio && !isAngel){
+    hitNio++; hitAngel=0;
+    if(hitNio>=NEED_HITS) setState("nio");
     return;
   }
 
-  if(isAngel){ setState("angel"); return; }
-  if(isNio){ setState("nio"); return; }
+  if(isAngel && isNio){
+    if(cyanAdv>=magAdv){
+      hitAngel++; if(hitAngel>=NEED_HITS) setState("angel");
+    }else{
+      hitNio++; if(hitNio>=NEED_HITS) setState("nio");
+    }
+    return;
+  }
 
+  hitAngel=hitNio=0;
   setState("none");
 }
 
-setInterval(check, 150); // ← 反応を速く
+setInterval(check,150);
 </script>
+
 </body>
 </html>
