@@ -9,25 +9,24 @@
   body{margin:0;background:#000;color:#fff;font-family:system-ui;overflow:hidden}
   video{width:100vw;height:100vh;object-fit:cover}
 
-  /* ROI：中央・丸・小 */
   #roi{
     position:fixed;top:50%;left:50%;
     width:75px;height:75px;
     transform:translate(-50%,-50%);
-    border:4px solid #00ffff; /* 誘導色 */
-    border-radius:50%;
+    border:4px solid #00ffff;border-radius:50%;
     pointer-events:none;z-index:3;
   }
 
   #result{
     position:fixed;bottom:28px;left:50%;transform:translateX(-50%);
     font-size:30px;font-weight:900;text-align:center;line-height:1.25;
-    text-shadow:0 0 16px rgba(0,0,0,.9);white-space:pre-line;z-index:3;
+    text-shadow:0 0 16px rgba(0,0,0,.9);
+    white-space:normal; /* ← 改行させない */
+    z-index:3;
   }
   .ok{color:#00ff66}
   .ng{color:#ff3333}
 
-  /* エフェクト */
   #fx{position:fixed;inset:0;pointer-events:none;z-index:2}
   .particle{position:absolute;font-size:18px;opacity:.85;animation:float linear infinite}
   @keyframes float{from{transform:translateY(0)}to{transform:translateY(-120vh)}}
@@ -35,12 +34,11 @@
 </head>
 
 <body>
-
 <video id="video" autoplay playsinline></video>
 <div id="fx"></div>
 <div id="roi"></div>
 <div id="result">円を●にあわせて</div>
-<canvas id="canvas" width="60" height="60" style="display:none"></canvas>
+<canvas id="canvas" width="80" height="80" style="display:none"></canvas>
 
 <script>
 const video=document.getElementById("video");
@@ -49,22 +47,16 @@ const ctx=canvas.getContext("2d",{willReadFrequently:true});
 const result=document.getElementById("result");
 const fx=document.getElementById("fx");
 
-const ROI_D=60;
-
-// 安定化パラメータ
-const NEED_HITS=3;     // 連続ヒット数
-const LOCK_TIME=1500; // ms
-
-let state="none";      // none | angel | nio
+const ROI_D=80;           // ← 少し大きく（拾いやすく）
+const LOCK_TIME=700;      // ← 早めに戻る（リアルタイム感）
 let lockUntil=0;
-let hitAngel=0, hitNio=0;
+let state="none";
 let fxTimer=null;
 
-// カメラ起動
 navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false})
 .then(s=>video.srcObject=s);
 
-// ===== エフェクト管理 =====
+// ===== FX =====
 function clearFX(){
   fx.innerHTML="";
   if(fxTimer){clearInterval(fxTimer);fxTimer=null;}
@@ -85,70 +77,88 @@ function startFX(type){
   },350);
 }
 
-// ===== 状態確定 =====
+// ===== 状態表示 =====
 function setState(newState){
+  if(newState===state) return;
   state=newState;
   lockUntil=Date.now()+LOCK_TIME;
-  hitAngel=0; hitNio=0;
 
   if(newState==="angel"){
     result.className="ng";
-    result.textContent="NG！\n実は堕天使　気をつけて";
+    result.textContent="NG！ 実は堕天使　気をつけて";   // ← 2行にしない
     startFX("angel");
   }else if(newState==="nio"){
     result.className="ok";
-    result.textContent="OK！\n金剛力士　見た目は鬼でも守り神";
+    result.textContent="OK！ 金剛力士　見た目は鬼でも守り神"; // ← 2行にしない
     startFX("nio");
   }else{
     result.className="";
-    result.textContent="円を●にあわせて";
+    result.textContent="円を●にあわせて";              // ← 1行固定
     clearFX();
   }
 }
 
-// ===== 判定ループ =====
+// ===== 判定 =====
 function check(){
   if(!video.videoWidth) return;
-
-  // ロック中は維持
   if(Date.now()<lockUntil) return;
 
   const sx=(video.videoWidth-ROI_D)/2;
   const sy=(video.videoHeight-ROI_D)/2;
+
   ctx.drawImage(video,sx,sy,ROI_D,ROI_D,0,0,ROI_D,ROI_D);
   const d=ctx.getImageData(0,0,ROI_D,ROI_D).data;
 
   let r=0,g=0,b=0,n=d.length/4;
-  for(let i=0;i<d.length;i+=4){r+=d[i];g+=d[i+1];b+=d[i+2]}
+  for(let i=0;i<d.length;i+=4){ r+=d[i]; g+=d[i+1]; b+=d[i+2]; }
   r/=n; g/=n; b/=n;
 
   const lum=(r+g+b)/3;
-  if(lum<35){ hitAngel=hitNio=0; setState("none"); return; }
+  if(lum<20){ setState("none"); return; } // 暗すぎは無視
 
-  // === 極端色判定 ===
-  // 天使：シアン #00FFFF（G,B高 / R低）
-  const isAngel = (g>200 && b>200 && r<80);
+  /*
+    激アマ判定（白バランス崩れを吸収する）
+    - シアン：GとBが「そこそこ高い」かつ Rが「そこそこ低い」
+    - マゼンタ：RとBが「そこそこ高い」かつ Gが「そこそこ低い」
+    さらに “優位差” でも拾う（混色に強い）
+  */
 
-  // 金剛力士：マゼンタ #FF00FF（R,B高 / G低）
-  const isNio   = (r>200 && b>200 && g<80);
+  // 優位差（どれだけ他より強いか）
+  const cyanAdv = (g + b) - (2 * r);
+  const magAdv  = (r + b) - (2 * g);
 
-  if(isAngel){
-    hitAngel++; hitNio=0;
-    if(hitAngel>=NEED_HITS) setState("angel");
+  // シアン（天使）超ゆる
+  const isAngel =
+    (
+      g > 110 && b > 110 && r < 170
+    ) ||
+    (
+      cyanAdv > 120 && b > 90 && g > 90
+    );
+
+  // マゼンタ（金剛力士）超ゆる
+  const isNio =
+    (
+      r > 110 && b > 110 && g < 170
+    ) ||
+    (
+      magAdv > 120 && b > 90 && r > 90
+    );
+
+  // どっちも成立しうるときは「より優位が大きい方」
+  if(isAngel && isNio){
+    if(cyanAdv >= magAdv) setState("angel");
+    else setState("nio");
     return;
   }
-  if(isNio){
-    hitNio++; hitAngel=0;
-    if(hitNio>=NEED_HITS) setState("nio");
-    return;
-  }
 
-  hitAngel=hitNio=0;
+  if(isAngel){ setState("angel"); return; }
+  if(isNio){ setState("nio"); return; }
+
   setState("none");
 }
 
-setInterval(check,200);
+setInterval(check, 150); // ← 反応を速く
 </script>
-
 </body>
 </html>
